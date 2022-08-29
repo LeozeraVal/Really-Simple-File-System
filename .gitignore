@@ -1,0 +1,5 @@
+/.vscode
+/disk.o
+/fs.o
+/rsfs
+/shell.o
