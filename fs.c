@@ -42,6 +42,13 @@ typedef struct {
 
 dir_entry dir[DIRENTRIES];
 
+unsigned short __fs_next_free_fat() {
+  for (size_t i = 33; i < bl_size(); i++) {
+    if (fat[i] == 1) return i;
+  }
+  return -1;
+}
+
 void print_fat(){
   buffer = (char *) fat;
   for (size_t i = 0; i < sizeof(fat); i++) {
@@ -53,65 +60,50 @@ void print_fat(){
 }
 
 int fs_init() {
-  //printf("Função não implementada: fs_init\n");
-  // ANOTACOES
-  // MUITO ESTRANHO LER!
-  // tirar douglas do grupo 💩
-  int formatar = 0;
-  fs_format();
+  //Buffer aponta para fat;
   buffer = (char *) fat;
-  for (size_t i = 0; i < 16; i++) {
+  for (size_t i = 0; i < 32; i++) {
     bl_read(i, buffer+(i*SECTORSIZE));
   }
 
+  // Checagens de Formtação;
+  int formatado = 1;
   size_t i;
   for (i = 0; i < 32; i++) {
-    if (fat[i] != 3) formatar = 1;
+    if (fat[i] != 3) formatado = 0;
+  }
+  if (fat[i] != 4) formatado = 0;
+  bl_read(32,(char*) dir);
+
+  if (!formatado) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
   }
 
-  if (fat[i] != 4) formatar = 1;
-  
-  for (size_t i = 33; i < FATCLUSTERS; i++) {
-    if (fat[i] < 33) formatar = 1;
-  }
   return 1;
-  // precisa checar extensivamente cada arquivo do dir?
-  //bl_read(16,)
-
-
-
-
-  //return formatar ? fs_format() : 1;
 }
 
 int fs_format() {
-  //printf("Função não implementada: fs_format\n");
-  
-  // ANOTACOES
-  // COMO PERCORRE FAT?
-  // COMO ESCREVE?
-  // FORMAT CERTO?
-
   // Em memoria azucrinamos a fat
   for (size_t i = 0; i < 32; i++) {
     fat[i] = 3;
   }
   fat[32] = 4;
-  for (size_t i = 33; i < FATCLUSTERS; i++) {
+  for (size_t i = 33; i < bl_size(); i++) {
     fat[i] = 1;
   }
   
   // Entao escrevemos a fat no disco :)
   for (size_t i = 0; i < 32; i++) {
-    bl_write(i, (char*) &fat+i*CLUSTERSIZE);
+    bl_write(i, ((char*) &fat) + i*CLUSTERSIZE);
   }
 
   // Em memória azucrinamos o dir
   for (size_t i = 0; i < DIRENTRIES; i++) {
-    dir[i].used = 69;
-    dir[i].name[0] = 'C';
+    dir[i].used = 0;
+    dir[i].name[0] = '\0';
     dir[i].first_block = -1;
-    dir[i].size = 420;
+    dir[i].size = 0;
   }
   // Entao escrevemos o dir no disco :)
   bl_write(32, (char*) &dir);
@@ -129,17 +121,62 @@ int fs_free() {
 }
 
 int fs_list(char *buffer, int size) {
+  //checar se esta sendo usado e imprimir?
   printf("Função não implementada: fs_list\n");
   return 0;
 }
 
 int fs_create(char* file_name) {
-  printf("Função não implementada: fs_create\n");
-  return 0;
+  int alvo = -1;
+  for (size_t i = 0; i < DIRENTRIES; i++) {
+    if (dir[i].used == 0 && alvo == -1) alvo = i;
+    
+    if(strcmp(dir[i].name, file_name) == 0) {
+      printf("Arquivo já existe!⚠⚠⚠⚠⚠\n");
+      return 0;      
+    }
+  }
+
+  if (alvo == -1) {
+    printf("ACABOU O ESPAÇO!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
+
+  int tamanho_nome = strlen(file_name);
+  if(tamanho_nome > 24) {
+    printf("Nome de arquivo muito grande!⚠⚠⚠⚠⚠\n");
+    return 0;
+  } 
+  strncpy(dir[alvo].name, file_name, tamanho_nome);
+  dir[alvo].name[tamanho_nome] = '\0';
+  dir[alvo].size = 0;
+  dir[alvo].used = 1;
+  unsigned short target_block = __fs_next_free_fat();
+  
+  dir[alvo].first_block = target_block;
+  fat[target_block] = 2;
+  
+  //ESCREVER EM DISCO
+  return 1;
 }
 
 int fs_remove(char *file_name) {
-  printf("Função não implementada: fs_remove\n");
+  for (size_t i = 0; i < DIRENTRIES; i++) {
+    if( dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0) {
+      dir[i].used = 0;
+      unsigned short target_block = dir[i].first_block;
+      unsigned short new_target;
+      while (target_block != 2) {
+        new_target = fat[target_block];
+        fat[target_block] = 1;
+        target_block = new_target; 
+      }
+      fat[target_block] = 1;
+      //ESCREVER EM DISCO
+      return 1;
+    }
+  }
+  printf("Arquivo não existe!⚠⚠⚠⚠⚠\n");
   return 0;
 }
 
