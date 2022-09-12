@@ -37,6 +37,7 @@ typedef struct {
   char open;
   int buffer_pointer;
   int block_pointer;
+  int mode;
 } file_iterator;
 
 file_iterator fit[DIRENTRIES];
@@ -49,6 +50,31 @@ typedef struct {
 } dir_entry;
 
 dir_entry dir[DIRENTRIES];
+
+int __fs_check_format() {
+  // Checagens de Formtação.
+  size_t i;
+  for (i = 0; i < 32; i++) {
+    // Itera pelos primeiros 32 setores da fat checando se estao com o valor corredo.
+    if (fat[i] != 3) return 0;
+  }
+  // Faz o mesmo para o setor 33, que tem que possuir o valor 4 para o unico diretorio do arquivo.
+  if (fat[i] != 4) return 0;
+
+  return 1;
+}
+
+int __fs_find_file(char *file_name) {
+  int alvo = -1;
+  for (size_t i = 0; i < DIRENTRIES; i++) {
+    // Caso não encontremos o arquivo para leitura retornamos erro.
+    if(strcmp(dir[i].name, file_name) == 0 && dir[i].used == 1) {
+      alvo = i;     
+      break;
+    }
+  }
+  return alvo;
+}
 
 // Funcao Auxiliar interna do fs que retorna o proximo setor livre da fat.
 unsigned short __fs_next_free_fat() {
@@ -77,6 +103,16 @@ void __fs_write_fat_dir_disk() {
 //   }
 // }
 
+// Funcao Auxiliar para printar os fits ativos jkjjjjjjjjjjjjjjjjjjjjjj
+void print_fit() {
+  for (size_t i = 0; i < DIRENTRIES; i++) {
+    if (fit[i].open == 1) {
+      printf("FIT ENCONTRADO: \n");
+      printf("Modo: %d, Block Pointer: %d, Buffer Pointer: %d\n", fit[i].mode, fit[i].block_pointer, fit[i].buffer_pointer);
+    }
+  }
+}
+
 int fs_init() {
   //Buffer aponta para fat.
   char* buffer = (char *) fat;
@@ -85,22 +121,12 @@ int fs_init() {
     bl_read(i, buffer+(i*SECTORSIZE));
   }
 
-  // Checagens de Formtação.
-  int formatado = 1;
-  size_t i;
-  for (i = 0; i < 32; i++) {
-    // Itera pelos primeiros 32 setores da fat checando se estao com o valor corredo.
-    if (fat[i] != 3) formatado = 0;
-  }
-  // Faz o mesmo para o setor 33, que tem que possuir o valor 4 para o unico diretorio do arquivo.
-  if (fat[i] != 4) formatado = 0;
-
   // Finaliza lendo o Setor do diretorio e carregando na memoria.
   bl_read(32,(char*) dir);
 
-  if (!formatado) {
+  // Checa se o arquivo lido esta formatado ou não;
+  if (!__fs_check_format()) {
     printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
-    return 0;
   }
 
   return 1;
@@ -139,6 +165,13 @@ int fs_format() {
 }
 
 int fs_free() {
+
+  // Checa se o arquivo lido esta formatado ou não;
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return -1;
+  }
+
   int free_blocks = 0;
   for (size_t i = 0; i < bl_size(); i++) {
     if (fat[i] == 1) free_blocks++;
@@ -147,6 +180,12 @@ int fs_free() {
 }
 
 int fs_list(char *buffer, int size) {
+
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
+
   // Criamos uma string temporaria que ira ser escrita no buffer.
   char temp[38];
 
@@ -168,6 +207,12 @@ int fs_list(char *buffer, int size) {
 }
 
 int fs_create(char* file_name) {
+
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
+
   int alvo = -1;
   for (size_t i = 0; i < DIRENTRIES; i++) {
     // Procuramos o primeiro local vazio.
@@ -211,6 +256,12 @@ int fs_create(char* file_name) {
 }
 
 int fs_remove(char *file_name) {
+
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
+
   for (size_t i = 0; i < DIRENTRIES; i++) {
     // Procuramos o arquivo fornecido na estrutura de diretorio.
     if(dir[i].used == 1 && strcmp(dir[i].name, file_name) == 0) {
@@ -234,18 +285,65 @@ int fs_remove(char *file_name) {
 }
 
 int fs_open(char *file_name, int mode) {
-  printf("Função não implementada: fs_open\n");
+  //printf("Função não implementada: fs_open\n");
   //Dependendo do modo: pode ser read ou write
   //caso for read, precisa checar a existencia do arquivo 
   //caso for write, checar se ja existe, se nao existe vc cria ele 
   //abre
   //preenche o fit com o número certin
 
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return -1;
+  }
+
+  if (mode == FS_R) {
+    int alvo = __fs_find_file(file_name);
+
+    if (alvo == -1) {
+      printf("Arquivo inexiste!⚠⚠⚠⚠⚠\n");
+      return -1; 
+    }
+
+    fit[alvo].block_pointer = dir[alvo].first_block;
+    fit[alvo].open = 1;
+    fit[alvo].buffer_pointer = 0;
+    fit[alvo].mode = mode;
+    print_fit();
+    return alvo;
+  }
+
+  // Se chegou aqui eh FS_W
+  if (mode == FS_W) {
+    int alvo = __fs_find_file(file_name);
+
+    if (alvo != -1) {
+      fs_remove(file_name);
+    }
+
+    fs_create(file_name);
+    int alvo2kkkkk = __fs_find_file(file_name);
+    fit[alvo].block_pointer = dir[alvo2kkkkk].first_block;
+    fit[alvo].mode = mode;
+    fit[alvo].buffer_pointer = 0;
+    fit[alvo].open = 1;
+
+    __fs_write_fat_dir_disk();
+    print_fit();
+    return alvo;
+  }
+
+  printf("Modo de abertura de arquivo não suportado!⚠⚠⚠⚠⚠");
   return -1;
 }
 
 int fs_close(int file)  {
   printf("Função não implementada: fs_close\n");
+
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
   //precisa checar se o arquivo esta aberto
   //flush no buffer da fit do arquivo em questao
   //limpar as variaveis da fit para o novo uso caso aconteca
@@ -255,6 +353,12 @@ int fs_close(int file)  {
 
 int fs_write(char *buffer, int size, int file) {
   printf("Função não implementada: fs_write\n");
+
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
+
   //checar se esta open e modo WRITE
   //brincar com o buffer da fit
   //retorna quantidade de bytes escritos
@@ -263,6 +367,12 @@ int fs_write(char *buffer, int size, int file) {
 
 int fs_read(char *buffer, int size, int file) {
   printf("Função não implementada: fs_read\n");
+
+  if (!__fs_check_format()) {
+    printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
+
   //checar se esta open e modo READ
   //brincar com o buffer da fit
   //tomar cuidado para nao devolver lixo
