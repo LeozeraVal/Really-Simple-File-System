@@ -31,7 +31,15 @@
 #define DIRENTRIES 128
 
 unsigned short fat[FATCLUSTERS];
-char *buffer;
+
+typedef struct {
+  char buffer[CLUSTERSIZE];
+  char open;
+  int buffer_pointer;
+  int block_pointer;
+} file_iterator;
+
+file_iterator fit[DIRENTRIES];
 
 typedef struct {
   char used;
@@ -59,19 +67,19 @@ void __fs_write_fat_dir_disk() {
 }
 
 // Funcao Auxiliar interna do fs que printa a fat guardada em memoria.
-void print_fat(){
-  buffer = (char *) fat;
-  for (size_t i = 0; i < sizeof(fat); i++) {
-    if (i % 100 == 0) {
-      printf("\n");
-    }
-    printf("%d ", buffer[i]);
-  }
-}
+// void print_fat(){
+//   buffer = (char *) fat;
+//   for (size_t i = 0; i < sizeof(fat); i++) {
+//     if (i % 100 == 0) {
+//       printf("\n");
+//     }
+//     printf("%d ", buffer[i]);
+//   }
+// }
 
 int fs_init() {
   //Buffer aponta para fat.
-  buffer = (char *) fat;
+  char* buffer = (char *) fat;
   for (size_t i = 0; i < 32; i++) {
     // Cada chamada de bl_read le um setor inteiro, portanto precisamos somar esse valor ao multiplicador de indice.
     bl_read(i, buffer+(i*SECTORSIZE));
@@ -227,21 +235,41 @@ int fs_remove(char *file_name) {
 
 int fs_open(char *file_name, int mode) {
   printf("Função não implementada: fs_open\n");
+  //Dependendo do modo: pode ser read ou write
+  //caso for read, precisa checar a existencia do arquivo 
+  //caso for write, checar se ja existe, se nao existe vc cria ele 
+  //abre
+  //preenche o fit com o número certin
+
   return -1;
 }
 
 int fs_close(int file)  {
   printf("Função não implementada: fs_close\n");
+  //precisa checar se o arquivo esta aberto
+  //flush no buffer da fit do arquivo em questao
+  //limpar as variaveis da fit para o novo uso caso aconteca
+  //fecha
   return 0;
 }
 
 int fs_write(char *buffer, int size, int file) {
   printf("Função não implementada: fs_write\n");
+  //checar se esta open e modo WRITE
+  //brincar com o buffer da fit
+  //retorna quantidade de bytes escritos
   return -1;
 }
 
 int fs_read(char *buffer, int size, int file) {
   printf("Função não implementada: fs_read\n");
+  //checar se esta open e modo READ
+  //brincar com o buffer da fit
+  //tomar cuidado para nao devolver lixo
+  //ou seja, o arquivo pode acabar antes da quantidade que o usuario pediu
+  //leia apenas ate EOF e mande o usuario burro tomar no cu
+  //ate mesmo se vc ja estiver no fim, nao leia nada retorne zero como um chad
+  //retorna a quantidade de bytes lidos
   return -1;
 }
 
