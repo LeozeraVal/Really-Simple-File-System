@@ -340,7 +340,6 @@ int fs_open(char *file_name, int mode) {
     fit[alvo].open = 1;
 
     __fs_write_fat_dir_disk();
-    printf("alvo: %d\n", alvo);
     return alvo;
   }
 
