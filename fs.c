@@ -32,6 +32,11 @@
 
 unsigned short fat[FATCLUSTERS];
 
+// Criamos 128 file iterators, cada um representa um arquivo do dir;
+// Cada file iterator possui um buffer que servira para escrita e leitura,
+// Um buffer pointer que possui o indice do buffer que representa o cursor, sendo para leitura ou escrita,
+// Um block pointer que aponta para o bloco atual que estamos lendo ou escrevendo, o modo, que pode ser leitura ou escrita
+// e finalmente um gindex que representa o indice em bytes do arquivo no geral, usado para contar quantos bytes já foram lidos;
 typedef struct {
   char buffer[CLUSTERSIZE];
   char open;
@@ -53,22 +58,23 @@ typedef struct {
 dir_entry dir[DIRENTRIES];
 
 int __fs_check_format() {
-  // Checagens de Formtação.
+  // Checagens de Formatação;
   size_t i;
   for (i = 0; i < 32; i++) {
-    // Itera pelos primeiros 32 setores da fat checando se estao com o valor corredo.
+    // Itera pelos primeiros 32 setores da fat checando se estao com o valor corredo;
     if (fat[i] != 3) return 0;
   }
-  // Faz o mesmo para o setor 33, que tem que possuir o valor 4 para o unico diretorio do arquivo.
+  // Faz o mesmo para o setor 33, que tem que possuir o valor 4 para o unico diretorio do arquivo;
   if (fat[i] != 4) return 0;
 
   return 1;
 }
 
+// Funcao auxiliar do fs que encontra um arquivo com nome dado no vetor dir;
 int __fs_find_file(char *file_name) {
   int alvo = -1;
   for (size_t i = 0; i < DIRENTRIES; i++) {
-    // Caso não encontremos o arquivo para leitura retornamos erro.
+    // Caso não encontremos o arquivo para leitura retornamos erro;
     if(strcmp(dir[i].name, file_name) == 0 && dir[i].used == 1) {
       alvo = i;     
       break;
@@ -77,7 +83,7 @@ int __fs_find_file(char *file_name) {
   return alvo;
 }
 
-// Funcao Auxiliar interna do fs que retorna o proximo setor livre da fat.
+// Funcao Auxiliar interna do fs que retorna o proximo setor livre da fat, e consequentemente arquivo;
 unsigned short __fs_next_free_fat() {
   for (size_t i = 33; i < bl_size(); i++) {
     if (fat[i] == 1) return i;
@@ -85,7 +91,7 @@ unsigned short __fs_next_free_fat() {
   return -1;
 }
 
-// Funcao Auxiliar interna do fs que escreve a fat e o unico dir no arquivo.
+// Funcao Auxiliar interna do fs que escreve a fat e o unico dir no arquivo;
 void __fs_write_fat_dir_disk() {
   for (size_t i = 0; i < 32; i++) {
     bl_write(i, ((char*) &fat) + i*CLUSTERSIZE);
@@ -93,20 +99,40 @@ void __fs_write_fat_dir_disk() {
   bl_write(32,(char*) &dir);
 }
 
+
+// Funcao auxiliar que o buffer de um arquivo em seu setor especifico, busca o proximo setor livre,
+// escreve na fat esse setor livre e também atualiza no fit. Além disso aumenta o tamanho do arquivo em dir com base na qnt de bytes
+// escritos pelo flush;
 int  __fs_flush_fit(int file, int qnt) {
+  // Escrevemos no arquivo
   bl_write(fit[file].block_pointer, fit[file].buffer);
+
+  // Buscamos proximo setor livre, se nao existe retornamos 0 de erro;
   int livre = __fs_next_free_fat();
   if (livre == -1) return 0;
+
+  // Escrevemos na fat este proximo setor livre que sera o proximo do arquivo
   fat[fit[file].block_pointer] = livre;
+
+  // E no fit este proximo setor
   fit[file].block_pointer = fat[fit[file].block_pointer];
+
+  // Este proximo setor sera o fim do arquivo
   fat[fit[file].block_pointer] = 2;
+
+  // Reiniciamos o ponteiro do buffer do arquivo
   fit[file].buffer_pointer = 0;
+
+  // Aumentamos o tamanho do arquivo pela quantidade de bytes escritos, na maioria dos casos sera SECTORSIZE mas
+  // é possivel que o fs_close() feche um arquivo com buffer de tamanho menor que SECTORSIZE, por isso a generalização
   dir[file].size += qnt;
+
+  // Escrevemos a fat e o dir no disco novamente;
   __fs_write_fat_dir_disk();
   return 1;
 }
 
-// Funcao Auxiliar interna do fs que printa a fat guardada em memoria.
+// Funcao Auxiliar interna do fs que printa a fat guardada em memoria;
 void __fs_print_fat(){
   char* buffer = (char *) fat;
   for (size_t i = 0; i < sizeof(fat); i++) {
@@ -117,7 +143,7 @@ void __fs_print_fat(){
   }
 }
 
-// Funcao Auxiliar para printar os fits ativos jkjjjjjjjjjjjjjjjjjjjjjj
+// Funcao Auxiliar para printar os fits ativos;
 void __fs_print_fit() {
   for (size_t i = 0; i < DIRENTRIES; i++) {
     if (fit[i].open == 1) {
@@ -147,24 +173,20 @@ int fs_init() {
 }
 
 int fs_format() {
-  // Primeiro populamos a fat em memoria, primeiramente os 32 primeiros setores com o valor 3.
-  // Depois o setor 33 com o valor 4 de diretorio.
+  // Primeiro populamos a fat em memoria, primeiramente os 32 primeiros setores com o valor 3;
+  // Depois o setor 33 com o valor 4 de diretorio;
   for (size_t i = 0; i < 32; i++) {
     fat[i] = 3;
   }
   fat[32] = 4;
 
-  // Para o resto da fat ate o bl_size, populamos.
+  // Para o resto da fat ate o bl_size, populamos com setor vazio;
   for (size_t i = 33; i < bl_size(); i++) {
     fat[i] = 1;
   }
   
-  // Entao escrevemos a fat no disco.
-  for (size_t i = 0; i < 32; i++) {
-    bl_write(i, ((char*) &fat) + i*CLUSTERSIZE);
-  }
 
-  // Em memória populamos o dir.
+  // Em memória populamos o dir;
   for (size_t i = 0; i < DIRENTRIES; i++) {
     dir[i].used = 0;
     dir[i].name[0] = '\0';
@@ -172,8 +194,8 @@ int fs_format() {
     dir[i].size = 0;
   }
 
-  // Entao escrevemos o dir no disco.
-  bl_write(32, (char*) &dir);
+  // Escrevemos a fat e o dir no disco;
+  __fs_write_fat_dir_disk();
 
   return 1;
 }
@@ -186,6 +208,7 @@ int fs_free() {
     return -1;
   }
 
+  // Para cada setor da fat livre somamos Clustersize bytes no total retornado;
   int free_blocks = 0;
   for (size_t i = 0; i < bl_size(); i++) {
     if (fat[i] == 1) free_blocks++;
@@ -200,14 +223,12 @@ int fs_list(char *buffer, int size) {
     return 0;
   }
 
-  // Criamos uma string temporaria que ira ser escrita no buffer.
+  // Criamos uma string temporaria que ira ser escrita no buffer;
   char temp[38];
 
-  // Por algum motivo precisamos limpar o buffer antes de efetuar o strcat,
-  // Pelo que entendemos deveria vir limpa do shell.c, portanto utilizamos esse metodo
-  // apesar de ser invasivo.
+  // Como estamos utilizando strcat, para concatenar bytes como caracteres, devemos tratar o buffer
+  // fornecido como uma string, e por isso precisamos colocar uma terminação de string no buffer;
   buffer[0] = '\0';
-
   for (size_t i = 0; i < DIRENTRIES; i++) {
     if (dir[i].used == 1) {
       // Para cada arquivo utilizado, printamos seu formato na string temp.
@@ -313,10 +334,12 @@ int fs_open(char *file_name, int mode) {
       return -1; 
     }
 
+    // Populamos o fit do arquivo;
     fit[alvo].block_pointer = dir[alvo].first_block;
     fit[alvo].open = 1;
     fit[alvo].buffer_pointer = 0;
     fit[alvo].mode = mode;
+    fit[alvo].gindex = 0;
     return alvo;
   }
 
@@ -324,12 +347,16 @@ int fs_open(char *file_name, int mode) {
   if (mode == FS_W) {
     int alvo = __fs_find_file(file_name);
 
+    // Se o arquivo ja existe o removemos;
     if (alvo != -1) {
       fs_remove(file_name);
     }
 
+    // Criamos um novo arquivo e o encontramos no dir;
     fs_create(file_name);
     alvo = __fs_find_file(file_name);
+
+    // Populamos o fit do arquivo;
     fit[alvo].block_pointer = dir[alvo].first_block;
     fit[alvo].mode = mode;
     fit[alvo].buffer_pointer = 0;
@@ -362,7 +389,7 @@ int fs_close(int file)  {
   // Flush no buffer
   if (fit[file].mode == FS_W) {
     if (fit[file].buffer_pointer != 0) {
-      // Pode fragmentação interna? 🤔
+      // Precisamos dar um ultimo flush caso ainda exista algo a ser escrito no buffer;
       if(!__fs_flush_fit(file, fit[file].buffer_pointer)){
         printf("Não há mais espaço no disco para fechar o arquivo!⚠⚠⚠⚠⚠");
         return 0;
@@ -393,6 +420,9 @@ int fs_write(char *buffer, int size, int file) {
     return -1;
   }
   
+  // Para cada byte escrito, copiamos o byte fornecido ao buffer do arquivo, aumentamos o buffer pointer
+  // Caso o buffer pointer fique igual CLUSTERSIZE chegamos no fim do buffer e no fim de um setor,
+  // portanto efetuamos o flush com a quantidade do buffer_pointer, para aumentar a quantidade do arquivo corretamente;
   size_t i;
   for (i = 0; i < size; i++) {
     fit[file].buffer[fit[file].buffer_pointer] = buffer[i];
@@ -426,23 +456,34 @@ int fs_read(char *buffer, int size, int file) {
     return -1;
   }
 
+  // Enquanto qtd de bytes lidos for menor que o tamanho passado pelo usuario ou tamanho do arquivo;
   size_t qtd = 0;
   while(qtd < size && qtd < dir[file].size) {
+
+    // Se estamos no bloco EOF acabamos o loop;
     if (fit[file].block_pointer == 2) {
       break;
     }
+
+    // Lemos o bloco atual do arquivo para o buffer do mesmo
     bl_read(fit[file].block_pointer, fit[file].buffer);
+
+    // Enquanto o buffer pointer não chegou ao fim, a qtd de bytes não chegou ao tamanho passado, e o indice
+    // global do arquivo não chegou ao tamanho do mesmo:
     while(fit[file].buffer_pointer < CLUSTERSIZE && qtd < size && fit[file].gindex < dir[file].size) {
+      // Lemos um byte do arquivo, aumentamos a qtd de bytes lidos, o pointer do buffer e o indice global do arquivo;
       strncpy(buffer+qtd, &fit[file].buffer[fit[file].buffer_pointer], 1);
       qtd++;
       fit[file].buffer_pointer++;
       fit[file].gindex++;
     }
 
+    // Se chegamos a alguma condição final da leitura paramos o loop;
     if (qtd == size || fit[file].gindex == dir[file].size) {
       break;
     }
     
+    // Se não temos que passar para o proximo bloco do arquivo e resetar o buffer pointer do mesmo;
     fit[file].block_pointer = fat[fit[file].block_pointer];
     fit[file].buffer_pointer = 0;
   }
