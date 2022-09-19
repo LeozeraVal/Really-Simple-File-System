@@ -38,6 +38,7 @@ typedef struct {
   int buffer_pointer;
   int block_pointer;
   int mode;
+  int gindex;
 } file_iterator;
 
 file_iterator fit[DIRENTRIES];
@@ -92,7 +93,7 @@ void __fs_write_fat_dir_disk() {
   bl_write(32,(char*) &dir);
 }
 
-int  __fs_flush_fit(int file) {
+int  __fs_flush_fit(int file, int qnt) {
   bl_write(fit[file].block_pointer, fit[file].buffer);
   int livre = __fs_next_free_fat();
   if (livre == -1) return 0;
@@ -100,23 +101,24 @@ int  __fs_flush_fit(int file) {
   fit[file].block_pointer = fat[fit[file].block_pointer];
   fat[fit[file].block_pointer] = 2;
   fit[file].buffer_pointer = 0;
+  dir[file].size += qnt;
   __fs_write_fat_dir_disk();
   return 1;
 }
 
 // Funcao Auxiliar interna do fs que printa a fat guardada em memoria.
-// void print_fat(){
-//   buffer = (char *) fat;
-//   for (size_t i = 0; i < sizeof(fat); i++) {
-//     if (i % 100 == 0) {
-//       printf("\n");
-//     }
-//     printf("%d ", buffer[i]);
-//   }
-// }
+void __fs_print_fat(){
+  char* buffer = (char *) fat;
+  for (size_t i = 0; i < sizeof(fat); i++) {
+    if (i % 100 == 0) {
+      printf("\n");
+    }
+    printf("%d ", buffer[i]);
+  }
+}
 
 // Funcao Auxiliar para printar os fits ativos jkjjjjjjjjjjjjjjjjjjjjjj
-void print_fit() {
+void __fs_print_fit() {
   for (size_t i = 0; i < DIRENTRIES; i++) {
     if (fit[i].open == 1) {
       printf("FIT ENCONTRADO: \n");
@@ -297,12 +299,6 @@ int fs_remove(char *file_name) {
 }
 
 int fs_open(char *file_name, int mode) {
-  //printf("Função não implementada: fs_open\n");
-  //Dependendo do modo: pode ser read ou write
-  //caso for read, precisa checar a existencia do arquivo 
-  //caso for write, checar se ja existe, se nao existe vc cria ele 
-  //abre
-  //preenche o fit com o número certin
 
   if (!__fs_check_format()) {
     printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
@@ -338,6 +334,7 @@ int fs_open(char *file_name, int mode) {
     fit[alvo].mode = mode;
     fit[alvo].buffer_pointer = 0;
     fit[alvo].open = 1;
+    fit[alvo].gindex = 0;
 
     __fs_write_fat_dir_disk();
     return alvo;
@@ -348,7 +345,6 @@ int fs_open(char *file_name, int mode) {
 }
 
 int fs_close(int file)  {
-  printf("Função não implementada: fs_close\n");
 
   if (!__fs_check_format()) {
     printf("Sistema de arquivo não formatado!⚠⚠⚠⚠⚠\n");
@@ -365,10 +361,12 @@ int fs_close(int file)  {
 
   // Flush no buffer
   if (fit[file].mode == FS_W) {
-    // Pode fragmentação interna? 🤔
-    if(!__fs_flush_fit(file)){
-      printf("Não há mais espaço no disco para fechar o arquivo!⚠⚠⚠⚠⚠");
-      return 0;
+    if (fit[file].buffer_pointer != 0) {
+      // Pode fragmentação interna? 🤔
+      if(!__fs_flush_fit(file, fit[file].buffer_pointer)){
+        printf("Não há mais espaço no disco para fechar o arquivo!⚠⚠⚠⚠⚠");
+        return 0;
+      }
     }
   }
   
@@ -379,6 +377,7 @@ int fs_close(int file)  {
   fit[file].buffer[0] = '\0';
   fit[file].buffer_pointer = 0;
   fit[file].mode = -1;
+  fit[file].gindex = 0;
   return 1;
 }
 
@@ -389,27 +388,17 @@ int fs_write(char *buffer, int size, int file) {
     return -1;
   }
 
-  //checar se esta open e modo WRITE
-  //brincar com o buffer da fit
-  //retorna quantidade de bytes escritos
   if (fit[file].open != 1 || fit[file].mode != FS_W) {
     printf("Arquivo não está aberto ou não está em modo de escrita!⚠⚠⚠⚠⚠");
     return -1;
   }
   
-  // Agora retorna erro, mas pode ser tratado
-  // Cara sla \0?? a gente pode acabar fazendo violação de memoria, ou podemos delegar isso pro usuario do shell.
-  // if (strlen(buffer) < size) {
-  //   printf("Buffer menor do que tamanho especificado!⚠⚠⚠⚠⚠");
-  //   return -1;
-  // }
-  
   size_t i;
   for (i = 0; i < size; i++) {
     fit[file].buffer[fit[file].buffer_pointer] = buffer[i];
     fit[file].buffer_pointer++;
-    if (fit[file].buffer_pointer == CLUSTERSIZE-1) {
-      if(!__fs_flush_fit(file)){
+    if (fit[file].buffer_pointer == CLUSTERSIZE) {
+      if(!__fs_flush_fit(file, fit[file].buffer_pointer)){
         printf("Não há mais espaço no disco!⚠⚠⚠⚠⚠");
         return -1;
       }
@@ -438,25 +427,25 @@ int fs_read(char *buffer, int size, int file) {
   }
 
   size_t qtd = 0;
-  while(qtd < size) {
+  while(qtd < size && qtd < dir[file].size) {
     if (fit[file].block_pointer == 2) {
       break;
     }
     bl_read(fit[file].block_pointer, fit[file].buffer);
-    while(fit[file].buffer_pointer < CLUSTERSIZE && qtd < size) {
-      strncpy(buffer, &fit[file].buffer[fit[file].buffer_pointer], 1);
+    while(fit[file].buffer_pointer < CLUSTERSIZE && qtd < size && fit[file].gindex < dir[file].size) {
+      strncpy(buffer+qtd, &fit[file].buffer[fit[file].buffer_pointer], 1);
       qtd++;
       fit[file].buffer_pointer++;
+      fit[file].gindex++;
     }
 
-    if (qtd == size) {
+    if (qtd == size || fit[file].gindex == dir[file].size) {
       break;
     }
     
     fit[file].block_pointer = fat[fit[file].block_pointer];
     fit[file].buffer_pointer = 0;
   }
-  
   return qtd;
 }
 
