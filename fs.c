@@ -84,7 +84,7 @@ int __fs_find_file(char *file_name) {
 }
 
 // Funcao Auxiliar interna do fs que retorna o proximo setor livre da fat, e consequentemente arquivo;
-unsigned short __fs_next_free_fat() {
+int __fs_next_free_fat() {
   for (size_t i = 33; i < bl_size(); i++) {
     if (fat[i] == 1) return i;
   }
@@ -104,12 +104,12 @@ void __fs_write_fat_dir_disk() {
 // escreve na fat esse setor livre e também atualiza no fit. Além disso aumenta o tamanho do arquivo em dir com base na qnt de bytes
 // escritos pelo flush;
 int  __fs_flush_fit(int file, int qnt) {
-  // Escrevemos no arquivo
-  bl_write(fit[file].block_pointer, fit[file].buffer);
-
   // Buscamos proximo setor livre, se nao existe retornamos 0 de erro;
   int livre = __fs_next_free_fat();
   if (livre == -1) return 0;
+
+  // Escrevemos no arquivo
+  bl_write(fit[file].block_pointer, fit[file].buffer);
 
   // Escrevemos na fat este proximo setor livre que sera o proximo do arquivo
   fat[fit[file].block_pointer] = livre;
@@ -280,6 +280,10 @@ int fs_create(char* file_name) {
   dir[alvo].used = 1;
   // Utilizamos a funcao auxiliar para buscar o proximo setor vazio na fat.
   unsigned short target_block = __fs_next_free_fat();
+  if (target_block == -1) {
+    printf("ACABOU O ESPAÇO!⚠⚠⚠⚠⚠\n");
+    return 0;
+  }
   dir[alvo].first_block = target_block;
 
   // Escrevemos na fat em memoria o setor ocupado.
@@ -390,8 +394,8 @@ int fs_close(int file)  {
   if (fit[file].mode == FS_W) {
     if (fit[file].buffer_pointer != 0) {
       // Precisamos dar um ultimo flush caso ainda exista algo a ser escrito no buffer;
-      if(!__fs_flush_fit(file, fit[file].buffer_pointer)){
-        printf("Não há mais espaço no disco para fechar o arquivo!⚠⚠⚠⚠⚠");
+      if(__fs_flush_fit(file, fit[file].buffer_pointer) == 0){
+        printf("Não há mais espaço no disco para preencher o buffer residual!⚠⚠⚠⚠⚠\n");
         return 0;
       }
     }
@@ -428,8 +432,8 @@ int fs_write(char *buffer, int size, int file) {
     fit[file].buffer[fit[file].buffer_pointer] = buffer[i];
     fit[file].buffer_pointer++;
     if (fit[file].buffer_pointer == CLUSTERSIZE) {
-      if(!__fs_flush_fit(file, fit[file].buffer_pointer)){
-        printf("Não há mais espaço no disco!⚠⚠⚠⚠⚠");
+      if(__fs_flush_fit(file, fit[file].buffer_pointer) == 0){
+        printf("Não há mais espaço no disco para dar flush!⚠⚠⚠⚠⚠\n");
         return -1;
       }
     }
