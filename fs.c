@@ -20,6 +20,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+ // Douglas Chen Ishimoto     771003
+ // Felipe Leite Kogus        771006
+ // Leonardo Valerio Morales  771030
+ // Vitor Kenzo F. Pellegatti 771066
+ 
 #include <stdio.h>
 #include <string.h>
 
